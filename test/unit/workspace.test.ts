@@ -40,4 +40,21 @@ describe("workspace", () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it("enforces issue branch per workspace", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "ws-"));
+    try {
+      const m = new WorkspaceManager(root, { afterCreate: "", beforeRun: "", afterRun: "", beforeRemove: "", timeoutMs: 2000 }, logger);
+      const ws = await m.ensureWorkspace(AbortSignal.timeout(3000), "ABC-123");
+      const branch = await m.ensureIssueBranch(AbortSignal.timeout(3000), ws.path, "ABC-123");
+      expect(branch).toBe("issue/ABC-123");
+      const head = await fs.readFile(path.join(ws.path, ".git", "HEAD"), "utf8");
+      expect(head).toContain("refs/heads/issue/ABC-123");
+
+      const branchAgain = await m.ensureIssueBranch(AbortSignal.timeout(3000), ws.path, "ABC-123");
+      expect(branchAgain).toBe("issue/ABC-123");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });

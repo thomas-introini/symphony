@@ -1,7 +1,9 @@
 import { validatePreflight } from "../config/validate.js";
+import type { RunnerMode } from "../agent/runner.js";
 import type { Runner } from "../agent/runner.js";
 import type { ServiceConfig, WorkflowDefinition } from "../domain/types.js";
 import { addRunDurationSeconds } from "../observability/metrics.js";
+import { verboseOpsEnabled } from "../observability/flags.js";
 import type { TrackerClient } from "../tracker/client.js";
 import type { WorkspaceManager } from "../workspace/manager.js";
 import { dispatchIssue, haveSlot, isEligible } from "./dispatch.js";
@@ -25,6 +27,7 @@ interface WorkerResult {
   attempt: number;
   startedAt: Date;
   error: unknown;
+  mode: RunnerMode;
 }
 
 export class Scheduler {
@@ -82,6 +85,9 @@ export class Scheduler {
       this.logger.warn("candidate fetch failed", "error", String(error));
       return;
     }
+    if (verboseOpsEnabled()) {
+      this.logger.info("tick fetched candidates", "count", candidates.length);
+    }
 
     candidates.sort((a, b) => {
       const pa = a.priority ?? 9999;
@@ -97,6 +103,7 @@ export class Scheduler {
       return a.identifier.localeCompare(b.identifier);
     });
 
+    let dispatched = 0;
     for (const issue of candidates) {
       if (!isEligible(this, issue, cfg)) {
         continue;
@@ -105,6 +112,10 @@ export class Scheduler {
         continue;
       }
       dispatchIssue(this, signal, issue, null);
+      dispatched += 1;
+    }
+    if (verboseOpsEnabled()) {
+      this.logger.info("tick dispatch complete", "dispatched", dispatched, "running", Object.keys(this.store.state.running).length);
     }
   }
 
@@ -118,6 +129,9 @@ export class Scheduler {
     }
 
     if (!result.error) {
+      if (result.mode === "planning") {
+        return;
+      }
       scheduleRetry(this, this.runSignal ?? new AbortController().signal, result.issue, 1, 1000, "continuation");
       return;
     }

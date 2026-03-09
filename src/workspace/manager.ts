@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { spawn } from "node:child_process";
 
 import { newError } from "../domain/errors.js";
 import { sanitizeWorkspaceKey } from "../domain/normalize.js";
@@ -65,6 +66,36 @@ export class WorkspaceManager {
     await runHook(signal, this.hooks.beforeRun, workspacePath, this.hookTimeoutMs());
   }
 
+  async ensureIssueBranch(signal: AbortSignal, workspacePath: string, issueIdentifier: string): Promise<string> {
+    const key = sanitizeWorkspaceKey(issueIdentifier);
+    if (!key) {
+      throw newError("invalid_workspace_key", "workspace key is empty");
+    }
+    const branchName = `issue/${key}`;
+
+    const inRepo = await this.runGitCommand(signal, workspacePath, ["rev-parse", "--is-inside-work-tree"]);
+    if (inRepo.code !== 0) {
+      if (inRepo.signalAborted) {
+        throw newError("issue_branch_enforcement_failed", `timed out ensuring git repository for ${issueIdentifier}`);
+      }
+      const initResult = await this.runGitCommand(signal, workspacePath, ["init"]);
+      if (initResult.code !== 0) {
+        throw newError("issue_branch_enforcement_failed", `failed to initialize git repo for ${issueIdentifier}`);
+      }
+      this.logger.info("initialized git repository", "workspace_path", workspacePath, "issue_identifier", issueIdentifier);
+    }
+
+    const branchRef = `refs/heads/${branchName}`;
+    const hasBranch = await this.runGitCommand(signal, workspacePath, ["show-ref", "--verify", "--quiet", branchRef]);
+    const switchArgs = hasBranch.code === 0 ? ["checkout", branchName] : ["checkout", "-b", branchName];
+    const switchResult = await this.runGitCommand(signal, workspacePath, switchArgs);
+    if (switchResult.code !== 0) {
+      throw newError("issue_branch_enforcement_failed", `failed to switch to issue branch ${branchName}`);
+    }
+    this.logger.info("issue branch ready", "workspace_path", workspacePath, "issue_identifier", issueIdentifier, "branch", branchName);
+    return branchName;
+  }
+
   async afterRun(signal: AbortSignal, workspacePath: string): Promise<void> {
     try {
       await runHook(signal, this.hooks.afterRun, workspacePath, this.hookTimeoutMs());
@@ -110,5 +141,23 @@ export class WorkspaceManager {
 
   private hookTimeoutMs(): number {
     return this.hooks.timeoutMs > 0 ? this.hooks.timeoutMs : this.defaultHookTimeoutMs;
+  }
+
+  private async runGitCommand(
+    signal: AbortSignal,
+    cwd: string,
+    args: string[]
+  ): Promise<{ code: number; signalAborted: boolean }> {
+    const timeout = AbortSignal.timeout(this.hookTimeoutMs());
+    const mergedSignal = AbortSignal.any([signal, timeout]);
+    return await new Promise<{ code: number; signalAborted: boolean }>((resolve, reject) => {
+      const child = spawn("git", args, { cwd, signal: mergedSignal, stdio: "ignore" });
+      child.on("error", (error) => {
+        reject(newError("issue_branch_enforcement_failed", `git command failed: git ${args.join(" ")}`, error));
+      });
+      child.on("exit", (code) => {
+        resolve({ code: code ?? 1, signalAborted: timeout.aborted || signal.aborted });
+      });
+    });
   }
 }

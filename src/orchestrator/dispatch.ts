@@ -1,6 +1,9 @@
 import { normalizeState } from "../domain/normalize.js";
+import { newError } from "../domain/errors.js";
 import type { Issue, ServiceConfig } from "../domain/types.js";
+import { verboseOpsEnabled } from "../observability/flags.js";
 import { addSessionDeltas } from "../observability/metrics.js";
+import type { RunAgentAttemptOptions, RunnerMode } from "../agent/runner.js";
 import type { Scheduler } from "./scheduler.js";
 import { initialLiveSession } from "./state.js";
 
@@ -62,7 +65,52 @@ export function dispatchIssue(s: Scheduler, parentSignal: AbortSignal, issue: Is
   delete s.store.state.retryAttempts[issue.id];
 
   const attemptNum = attempt ?? 0;
+  const runMode = resolveRunMode(issue, s.provider.current().cfg);
+  if (verboseOpsEnabled()) {
+    s.logger.info(
+      "dispatch issue",
+      "issue_id",
+      issue.id,
+      "issue_identifier",
+      issue.identifier,
+      "state",
+      issue.state,
+      "mode",
+      runMode,
+      "attempt",
+      attemptNum
+    );
+  }
+  const onRunnerEvent = (evt: import("../agent/protocol.js").AppServerEvent): void => {
+    const cur = s.store.state.running[issue.id];
+    if (!cur) {
+      return;
+    }
+    cur.lastEventAt = evt.timestamp;
+    cur.session.lastCodexEvent = evt.event;
+    cur.session.lastCodexTimestamp = evt.timestamp;
+    cur.session.sessionId = evt.sessionId;
+    cur.session.threadId = evt.threadId;
+    cur.session.turnId = evt.turnId;
+    if (evt.usage) {
+      addSessionDeltas(
+        cur.session,
+        evt.usage.input_tokens ?? 0,
+        evt.usage.output_tokens ?? 0,
+        evt.usage.total_tokens ?? 0
+      );
+    }
+    if (evt.rateLimits) {
+      s.store.state.codexRateLimits = evt.rateLimits;
+    }
+  };
   void (async () => {
+    if (runMode === "planning") {
+      await executePlanningRun(s, runController.signal, issue, attempt, onRunnerEvent);
+      return;
+    }
+
+    const options = await buildImplementationOptions(s, runController.signal, issue, attempt);
     if (normalizeState(issue.state) !== normalizeState("In Progress")) {
       try {
         await s.tracker.transitionIssueToState(runController.signal, issue.id, "In Progress");
@@ -82,33 +130,92 @@ export function dispatchIssue(s: Scheduler, parentSignal: AbortSignal, issue: Is
       }
     }
 
-    await s.runner.runAgentAttempt(runController.signal, issue, attempt, (evt) => {
-      const cur = s.store.state.running[issue.id];
-      if (!cur) {
-        return;
-      }
-      cur.lastEventAt = evt.timestamp;
-      cur.session.lastCodexEvent = evt.event;
-      cur.session.lastCodexTimestamp = evt.timestamp;
-      cur.session.sessionId = evt.sessionId;
-      cur.session.threadId = evt.threadId;
-      cur.session.turnId = evt.turnId;
-      if (evt.usage) {
-        addSessionDeltas(
-          cur.session,
-          evt.usage.input_tokens ?? 0,
-          evt.usage.output_tokens ?? 0,
-          evt.usage.total_tokens ?? 0
-        );
-      }
-      if (evt.rateLimits) {
-        s.store.state.codexRateLimits = evt.rateLimits;
-      }
-    });
+    await s.runner.runAgentAttempt(runController.signal, issue, options, onRunnerEvent);
   })().then(
-    () => s.handleWorkerExit({ issueId: issue.id, issue, attempt: attemptNum, startedAt: now, error: null }),
-    (error: unknown) => s.handleWorkerExit({ issueId: issue.id, issue, attempt: attemptNum, startedAt: now, error })
+    () => s.handleWorkerExit({ issueId: issue.id, issue, attempt: attemptNum, startedAt: now, error: null, mode: runMode }),
+    (error: unknown) => s.handleWorkerExit({ issueId: issue.id, issue, attempt: attemptNum, startedAt: now, error, mode: runMode })
   );
+}
+
+function resolveRunMode(issue: Issue, cfg: ServiceConfig): RunnerMode {
+  if (normalizeState(issue.state) === normalizeState(cfg.tracker.planningSourceState)) {
+    return "planning";
+  }
+  return "implementation";
+}
+
+async function executePlanningRun(
+  s: Scheduler,
+  signal: AbortSignal,
+  issue: Issue,
+  attempt: number | null,
+  onEvent: (evt: import("../agent/protocol.js").AppServerEvent) => void
+): Promise<void> {
+  const { cfg } = s.provider.current();
+  if (verboseOpsEnabled()) {
+    s.logger.info("planning run started", "issue_id", issue.id, "issue_identifier", issue.identifier);
+  }
+  const existingPlan = await s.tracker.fetchLatestPlanComment(signal, issue.id, cfg.tracker.planCommentTag);
+  if (existingPlan && existingPlan.trim()) {
+    if (verboseOpsEnabled()) {
+      s.logger.info("planning reuse existing plan", "issue_id", issue.id, "target_state", cfg.tracker.planningTargetState);
+    }
+    await s.tracker.transitionIssueToState(signal, issue.id, cfg.tracker.planningTargetState);
+    issue.state = cfg.tracker.planningTargetState;
+    return;
+  }
+
+  const result = await s.runner.runAgentAttempt(
+    signal,
+    issue,
+    {
+      attempt,
+      mode: "planning"
+    },
+    onEvent
+  );
+  const plan = result.plan?.trim() ?? "";
+  if (!plan) {
+    throw newError("planning_output_missing", `planning output missing for issue=${issue.identifier}`);
+  }
+
+  const commentBody = `${cfg.tracker.planCommentTag}\n\n${plan}`;
+  if (verboseOpsEnabled()) {
+    s.logger.info("planning post plan comment", "issue_id", issue.id, "comment_length", commentBody.length);
+  }
+  await s.tracker.addIssueComment(signal, issue.id, commentBody);
+  await s.tracker.transitionIssueToState(signal, issue.id, cfg.tracker.planningTargetState);
+  if (verboseOpsEnabled()) {
+    s.logger.info("planning transition complete", "issue_id", issue.id, "target_state", cfg.tracker.planningTargetState);
+  }
+  issue.state = cfg.tracker.planningTargetState;
+}
+
+async function buildImplementationOptions(
+  s: Scheduler,
+  signal: AbortSignal,
+  issue: Issue,
+  attempt: number | null
+): Promise<RunAgentAttemptOptions> {
+  const { cfg } = s.provider.current();
+  if (normalizeState(issue.state) !== normalizeState(cfg.tracker.implementationState)) {
+    return { attempt, mode: "implementation" };
+  }
+  if (verboseOpsEnabled()) {
+    s.logger.info("implementation loading plan", "issue_id", issue.id, "state", issue.state);
+  }
+  const plan = await s.tracker.fetchLatestPlanComment(signal, issue.id, cfg.tracker.planCommentTag);
+  if (!plan || !plan.trim()) {
+    throw newError(
+      "missing_plan_comment",
+      `no tagged plan comment found for issue=${issue.identifier} in state=${cfg.tracker.implementationState}`
+    );
+  }
+  return {
+    attempt,
+    mode: "implementation",
+    planContext: plan
+  };
 }
 
 export function containsState(states: string[], state: string): boolean {

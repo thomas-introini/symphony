@@ -17,6 +17,10 @@ const defaultReadTimeoutMs = 5000;
 const defaultStallTimeoutMs = 300000;
 const defaultProjectStatusField = "Status";
 const defaultProjectPriorityField = "Priority";
+const defaultPlanningSourceState = "Ready";
+const defaultPlanningTargetState = "Planned";
+const defaultImplementationState = "Ready to implement";
+const defaultPlanCommentTag = "<!-- symphony:implementation-plan -->";
 
 const defaultActiveStates = ["Todo", "In Progress"];
 const defaultTerminalStates = ["Done", "Closed", "Cancelled", "Canceled", "Duplicate"];
@@ -36,7 +40,11 @@ export function buildServiceConfig(def: WorkflowDefinition): ServiceConfig {
       activeStates: getStringList(root, "tracker", "active_states", defaultActiveStates),
       terminalStates: getStringList(root, "tracker", "terminal_states", defaultTerminalStates),
       statusFieldName: coalesce(getString(root, "tracker", "status_field_name"), defaultProjectStatusField),
-      priorityFieldName: coalesce(getString(root, "tracker", "priority_field_name"), defaultProjectPriorityField)
+      priorityFieldName: coalesce(getString(root, "tracker", "priority_field_name"), defaultProjectPriorityField),
+      planningSourceState: coalesce(getString(root, "tracker", "planning_source_state"), defaultPlanningSourceState),
+      planningTargetState: coalesce(getString(root, "tracker", "planning_target_state"), defaultPlanningTargetState),
+      implementationState: coalesce(getString(root, "tracker", "implementation_state"), defaultImplementationState),
+      planCommentTag: coalesce(getString(root, "tracker", "plan_comment_tag"), defaultPlanCommentTag)
     },
     polling: {
       intervalMs: getInt(root, "polling", "interval_ms", defaultPollingIntervalMs)

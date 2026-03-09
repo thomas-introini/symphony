@@ -113,3 +113,30 @@ mutation UpdateProjectItemStatus($projectId: ID!, $itemId: ID!, $fieldId: ID!, $
   }
 }
 `;
+
+export const addIssueCommentMutation = `
+mutation AddIssueComment($subjectId: ID!, $body: String!) {
+  addComment(input: { subjectId: $subjectId, body: $body }) {
+    commentEdge {
+      node {
+        id
+      }
+    }
+  }
+}
+`;
+
+export const latestIssueCommentsQuery = `
+query LatestIssueComments($issueId: ID!) {
+  node(id: $issueId) {
+    ... on Issue {
+      comments(last: 50) {
+        nodes {
+          body
+          createdAt
+        }
+      }
+    }
+  }
+}
+`;

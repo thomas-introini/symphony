@@ -32,11 +32,20 @@ class ConfigHolder {
   }
 }
 
-async function main(): Promise<void> {
-  const logger = new Logger();
-  dotenv.config();
+interface CliArgs {
+  workflowArg: string;
+  verboseOps: boolean;
+}
 
-  const workflowPath = resolveWorkflowPath(process.argv[2] ?? "");
+async function main(): Promise<void> {
+  dotenv.config();
+  const args = parseCliArgs(process.argv.slice(2));
+  if (args.verboseOps) {
+    process.env.SYMPHONY_VERBOSE_OPS = "1";
+  }
+  const logger = new Logger();
+
+  const workflowPath = resolveWorkflowPath(args.workflowArg);
   const def = await load(workflowPath);
   const cfg = buildServiceConfig(def);
   validatePreflight(cfg);
@@ -63,6 +72,21 @@ async function main(): Promise<void> {
 
   await scheduler.run(controller.signal);
   logger.info("shutdown complete");
+}
+
+function parseCliArgs(argv: string[]): CliArgs {
+  let workflowArg = "";
+  let verboseOps = false;
+  for (const arg of argv) {
+    if (arg === "--verbose-ops" || arg === "--verbose" || arg === "-v") {
+      verboseOps = true;
+      continue;
+    }
+    if (!workflowArg) {
+      workflowArg = arg;
+    }
+  }
+  return { workflowArg, verboseOps };
 }
 
 main().catch((error) => {

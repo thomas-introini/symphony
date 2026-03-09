@@ -3,7 +3,9 @@ import { normalizeState } from "../domain/normalize.js";
 import type { Issue, TrackerConfig } from "../domain/types.js";
 import type { TrackerClient } from "./client.js";
 import {
+  addIssueCommentMutation,
   candidateIssuesQuery,
+  latestIssueCommentsQuery,
   projectStatusTransitionQuery,
   statesByIdsQuery,
   updateProjectItemStatusMutation
@@ -89,6 +91,48 @@ export class GitHubClient implements TrackerClient {
       fieldId: target.fieldId,
       optionId: target.optionId
     });
+  }
+
+  async addIssueComment(signal: AbortSignal, issueId: string, body: string): Promise<void> {
+    if (!issueId.trim() || !body.trim()) {
+      return;
+    }
+    await this.graphql(signal, addIssueCommentMutation, {
+      subjectId: issueId,
+      body
+    });
+  }
+
+  async fetchLatestPlanComment(signal: AbortSignal, issueId: string, tag: string): Promise<string | null> {
+    if (!issueId.trim() || !tag.trim()) {
+      return null;
+    }
+    const payload = await this.graphql(signal, latestIssueCommentsQuery, {
+      issueId
+    });
+    const data = asMap(payload.data);
+    const node = asMap(data?.node);
+    const comments = asMap(node?.comments);
+    const rows = Array.isArray(comments?.nodes) ? comments.nodes : [];
+    let latestBody = "";
+    let latestAt = Number.MIN_SAFE_INTEGER;
+    for (const rowRaw of rows) {
+      const row = asMap(rowRaw);
+      if (!row) {
+        continue;
+      }
+      const body = asString(row.body);
+      if (!body.includes(tag)) {
+        continue;
+      }
+      const createdAt = Date.parse(asString(row.createdAt));
+      const ts = Number.isFinite(createdAt) ? createdAt : Number.MIN_SAFE_INTEGER;
+      if (ts >= latestAt) {
+        latestBody = body;
+        latestAt = ts;
+      }
+    }
+    return latestBody || null;
   }
 
   private async fetchProjectIssues(signal: AbortSignal): Promise<Issue[]> {

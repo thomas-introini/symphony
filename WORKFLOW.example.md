@@ -8,6 +8,7 @@ tracker:
   project_number: 1
   active_states:
     - Ready
+    - Ready to implement
     - In Progress
   terminal_states:
     - Done
@@ -17,6 +18,10 @@ tracker:
     - Duplicate
   status_field_name: Status
   priority_field_name: Priority
+  planning_source_state: Ready
+  planning_target_state: Planned
+  implementation_state: Ready to implement
+  plan_comment_tag: "<!-- symphony:implementation-plan -->"
 
 polling:
   interval_ms: 10000
@@ -64,12 +69,15 @@ Issue context:
 - State: {{issue.state}}
 - URL: {{issue.url}}
 - Attempt: {{attempt}}
+- Description: {{issue.description}}
 
 Instructions:
 
-1. Read the issue title/description and confirm scope before coding.
-2. Work only inside the current workspace directory.
-3. Implement the smallest safe change that advances the issue.
-4. Run relevant checks/tests for modified code.
-5. If blocked, explain exactly what is blocked and what evidence you gathered.
-6. End with a concise status note including what changed and next steps.
+1. Read the issue title/description and confirm scope before taking action.
+2. If a `Plan context` section is present in the turn input, treat it as the source-of-truth implementation plan from the tagged issue comment and follow it unless repo reality requires a deviation.
+3. If you deviate from the plan, explain why and keep the same intent.
+4. Work only inside the current workspace directory.
+5. Implement the smallest safe change that advances the issue.
+6. Run relevant checks/tests for modified code.
+7. If blocked, explain exactly what is blocked and what evidence you gathered.
+8. End with a concise status note including what changed, any plan deviations, and next steps.

@@ -6,6 +6,7 @@ import type { AppServerEvent, TurnResult } from "./protocol.js";
 import {
   classifyTurnMessage,
   extractMethod,
+  extractMessage,
   extractRateLimits,
   extractThreadIdFromResponse,
   extractTurnIdFromResponse,
@@ -195,7 +196,7 @@ export class AppServerClient {
       onEvent({
         event: method,
         timestamp: new Date(),
-        message: "",
+        message: extractMessage(params),
         threadId,
         turnId,
         sessionId: composeSessionId(threadId, turnId),

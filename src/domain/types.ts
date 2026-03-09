@@ -37,6 +37,10 @@ export interface TrackerConfig {
   terminalStates: string[];
   statusFieldName: string;
   priorityFieldName: string;
+  planningSourceState: string;
+  planningTargetState: string;
+  implementationState: string;
+  planCommentTag: string;
 }
 
 export interface PollingConfig {

@@ -49,6 +49,18 @@ export function extractRateLimits(payload: AnyMap | undefined): Record<string, u
   return undefined;
 }
 
+export function extractMessage(payload: AnyMap | undefined): string {
+  if (!payload) {
+    return "";
+  }
+  const values: string[] = [];
+  collectMessageValues(payload, values, 0, false, new WeakSet<object>());
+  if (values.length === 0) {
+    return "";
+  }
+  return values.join("\n").trim();
+}
+
 export function extractThreadIdFromResponse(raw: AnyMap): string {
   return firstString(raw, "result.thread.id", "result.threadId", "result.thread_id", "thread.id", "threadId", "thread_id");
 }
@@ -184,4 +196,45 @@ function asMap(v: unknown): AnyMap | null {
     return v as AnyMap;
   }
   return null;
+}
+
+function collectMessageValues(
+  value: unknown,
+  out: string[],
+  depth: number,
+  captureText: boolean,
+  seen: WeakSet<object>
+): void {
+  if (depth > 5 || out.length >= 20) {
+    return;
+  }
+  if (typeof value === "string") {
+    if (!captureText) {
+      return;
+    }
+    const trimmed = value.trim();
+    if (trimmed) {
+      out.push(trimmed);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectMessageValues(item, out, depth + 1, captureText, seen);
+    }
+    return;
+  }
+  const map = asMap(value);
+  if (!map) {
+    return;
+  }
+  if (seen.has(map)) {
+    return;
+  }
+  seen.add(map);
+  for (const [key, nested] of Object.entries(map)) {
+    const shouldCapture =
+      captureText || key === "message" || key === "text" || key === "output_text" || key === "outputText";
+    collectMessageValues(nested, out, depth + 1, shouldCapture, seen);
+  }
 }

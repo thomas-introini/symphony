@@ -1,0 +1,7 @@
+{"method":"notifications/turn/completed","params":{"total_token_usage":{"input_tokens":10,"output_tokens":20,"total_tokens":30}}}
+{"method":"event/turn/failed","params":{"message":"tool failed"}}
+{"method":"notification/turn/cancelled","params":{"reason":"operator_cancelled"}}
+{"method":"item/tool/requestUserInput","params":{"prompt":"Need confirmation"}}
+{"event":"thread/tokenUsage/updated","params":{"thread":{"tokenUsage":{"inputTokens":5,"outputTokens":6,"totalTokens":11}},"rateLimits":{"remaining":55}}}
+{"type":"approval/requested","id":"9","params":{"requiresApproval":true}}
+{"method":"item/tool/call","id":"10","params":{"tool_name":"unsupported"}}

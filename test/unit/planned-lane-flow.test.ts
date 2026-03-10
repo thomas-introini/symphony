@@ -9,6 +9,7 @@ describe("planned lane flow", () => {
   it("routes Ready issues through planning and transitions to Planned", async () => {
     const issue = makeIssue("Ready");
     const calls: string[] = [];
+    let currentState = "Ready";
     const tracker = {
       async fetchCandidateIssues(): Promise<Issue[]> {
         return [];
@@ -17,9 +18,10 @@ describe("planned lane flow", () => {
         return [];
       },
       async fetchIssueStatesByIds(): Promise<Record<string, string>> {
-        return {};
+        return { [issue.id]: currentState };
       },
       async transitionIssueToState(_signal: AbortSignal, _issueId: string, stateName: string): Promise<void> {
+        currentState = stateName;
         calls.push(`transition:${stateName}`);
       },
       async addIssueComment(_signal: AbortSignal, _issueId: string, body: string): Promise<void> {
@@ -48,7 +50,7 @@ describe("planned lane flow", () => {
     dispatchIssue(scheduler, AbortSignal.timeout(5000), issue, null);
     await waitForIssueExit(scheduler, issue.id);
 
-    expect(calls).toEqual(["fetch-plan", "run:planning", "comment", "transition:Planned"]);
+    expect(calls).toEqual(["fetch-plan", "transition:Planning", "run:planning", "fetch-plan", "comment", "transition:Planned"]);
     expect(scheduler.store.state.retryAttempts[issue.id]).toBeUndefined();
   });
 
@@ -98,7 +100,8 @@ describe("planned lane flow", () => {
 
   it("does not transition planning issue when comment post fails", async () => {
     const issue = makeIssue("Ready");
-    let transitioned = false;
+    let currentState = "Ready";
+    const transitions: string[] = [];
     const tracker = {
       async fetchCandidateIssues(): Promise<Issue[]> {
         return [];
@@ -107,10 +110,11 @@ describe("planned lane flow", () => {
         return [];
       },
       async fetchIssueStatesByIds(): Promise<Record<string, string>> {
-        return {};
+        return { [issue.id]: currentState };
       },
-      async transitionIssueToState(): Promise<void> {
-        transitioned = true;
+      async transitionIssueToState(_signal: AbortSignal, _issueId: string, stateName: string): Promise<void> {
+        currentState = stateName;
+        transitions.push(stateName);
       },
       async addIssueComment(): Promise<void> {
         throw new Error("comment failure");
@@ -130,7 +134,54 @@ describe("planned lane flow", () => {
     dispatchIssue(scheduler, AbortSignal.timeout(5000), issue, null);
     await waitForIssueExit(scheduler, issue.id);
 
-    expect(transitioned).toBe(false);
+    expect(transitions).toContain("Planning");
+    expect(transitions).not.toContain("Planned");
+  });
+
+  it("avoids duplicate plan comment when another runner posted first", async () => {
+    const issue = makeIssue("Ready");
+    let fetchCount = 0;
+    let commentsPosted = 0;
+    const transitions: string[] = [];
+    let currentState = "Ready";
+    const tracker = {
+      async fetchCandidateIssues(): Promise<Issue[]> {
+        return [];
+      },
+      async fetchIssuesByStates(): Promise<Issue[]> {
+        return [];
+      },
+      async fetchIssueStatesByIds(): Promise<Record<string, string>> {
+        return { [issue.id]: currentState };
+      },
+      async transitionIssueToState(_signal: AbortSignal, _issueId: string, stateName: string): Promise<void> {
+        currentState = stateName;
+        transitions.push(stateName);
+      },
+      async addIssueComment(): Promise<void> {
+        commentsPosted += 1;
+      },
+      async fetchLatestPlanComment(): Promise<string | null> {
+        fetchCount += 1;
+        if (fetchCount === 1) {
+          return null;
+        }
+        return "<!-- symphony:implementation-plan -->\n\nexisting";
+      }
+    };
+
+    const runner = {
+      async runAgentAttempt(): Promise<{ plan: string | null }> {
+        return { plan: "new plan" };
+      }
+    };
+
+    const scheduler = makeScheduler(tracker, runner);
+    dispatchIssue(scheduler, AbortSignal.timeout(5000), issue, null);
+    await waitForIssueExit(scheduler, issue.id);
+
+    expect(commentsPosted).toBe(0);
+    expect(transitions).toEqual(["Planning", "Planned"]);
   });
 
   it("fails implementation run when no tagged plan exists", async () => {
@@ -212,11 +263,12 @@ function makeConfig(): ServiceConfig {
       owner: "o",
       repo: "r",
       projectNumber: 1,
-      activeStates: ["Ready", "Ready to implement", "In Progress"],
+      activeStates: ["Ready", "Planning", "Ready to implement", "In Progress"],
       terminalStates: ["Done"],
       statusFieldName: "Status",
       priorityFieldName: "Priority",
       planningSourceState: "Ready",
+      planningClaimState: "Planning",
       planningTargetState: "Planned",
       implementationState: "Ready to implement",
       planCommentTag: "<!-- symphony:implementation-plan -->"

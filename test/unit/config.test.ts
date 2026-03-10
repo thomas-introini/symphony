@@ -15,6 +15,7 @@ describe("config", () => {
     expect(cfg.codex.command).toBe("codex app-server");
     expect(cfg.tracker.activeStates).toHaveLength(2);
     expect(cfg.tracker.planningSourceState).toBe("Ready");
+    expect(cfg.tracker.planningClaimState).toBe("Planning");
     expect(cfg.tracker.planningTargetState).toBe("Planned");
     expect(cfg.tracker.implementationState).toBe("Ready to implement");
     expect(cfg.tracker.planCommentTag).toBe("<!-- symphony:implementation-plan -->");
@@ -71,6 +72,7 @@ describe("config", () => {
           statusFieldName: "",
           priorityFieldName: "",
           planningSourceState: "Ready",
+          planningClaimState: "Planning",
           planningTargetState: "Planned",
           implementationState: "Ready to implement",
           planCommentTag: "<!-- symphony:implementation-plan -->"
@@ -105,6 +107,7 @@ describe("config", () => {
           statusFieldName: "",
           priorityFieldName: "",
           planningSourceState: "Ready",
+          planningClaimState: "Planning",
           planningTargetState: "Planned",
           implementationState: "Ready to implement",
           planCommentTag: "<!-- symphony:implementation-plan -->"
@@ -131,6 +134,34 @@ describe("config", () => {
           statusFieldName: "",
           priorityFieldName: "",
           planningSourceState: "",
+          planningClaimState: "Planning",
+          planningTargetState: "Planned",
+          implementationState: "Ready to implement",
+          planCommentTag: "<!-- symphony:implementation-plan -->"
+        },
+        polling: { intervalMs: 1 },
+        workspace: { root: "" },
+        hooks: { afterCreate: "", beforeRun: "", afterRun: "", beforeRemove: "", timeoutMs: 1 },
+        agent: { maxConcurrentAgents: 1, maxTurns: 1, maxRetryBackoffMs: 1, maxConcurrentAgentsByState: {} },
+        codex: { command: "x", approvalPolicy: "", threadSandbox: "", turnSandboxPolicy: "", turnTimeoutMs: 1, readTimeoutMs: 1, stallTimeoutMs: 1 }
+      })
+    ).toThrow(SymphonyError);
+
+    expect(() =>
+      validatePreflight({
+        tracker: {
+          kind: "github",
+          endpoint: "",
+          apiKey: "x",
+          owner: "o",
+          repo: "r",
+          projectNumber: 1,
+          activeStates: [],
+          terminalStates: [],
+          statusFieldName: "",
+          priorityFieldName: "",
+          planningSourceState: "Ready",
+          planningClaimState: "",
           planningTargetState: "Planned",
           implementationState: "Ready to implement",
           planCommentTag: "<!-- symphony:implementation-plan -->"

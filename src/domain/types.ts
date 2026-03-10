@@ -38,6 +38,7 @@ export interface TrackerConfig {
   statusFieldName: string;
   priorityFieldName: string;
   planningSourceState: string;
+  planningClaimState: string;
   planningTargetState: string;
   implementationState: string;
   planCommentTag: string;

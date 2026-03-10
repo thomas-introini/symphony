@@ -24,6 +24,9 @@ export function validatePreflight(cfg: ServiceConfig): void {
   if (!cfg.tracker.planningSourceState.trim()) {
     throw newError("invalid_tracker_planning_source_state", "tracker.planning_source_state must be non-empty");
   }
+  if (!cfg.tracker.planningClaimState.trim()) {
+    throw newError("invalid_tracker_planning_claim_state", "tracker.planning_claim_state must be non-empty");
+  }
   if (!cfg.tracker.planningTargetState.trim()) {
     throw newError("invalid_tracker_planning_target_state", "tracker.planning_target_state must be non-empty");
   }

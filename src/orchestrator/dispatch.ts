@@ -138,7 +138,8 @@ export function dispatchIssue(s: Scheduler, parentSignal: AbortSignal, issue: Is
 }
 
 function resolveRunMode(issue: Issue, cfg: ServiceConfig): RunnerMode {
-  if (normalizeState(issue.state) === normalizeState(cfg.tracker.planningSourceState)) {
+  const state = normalizeState(issue.state);
+  if (state === normalizeState(cfg.tracker.planningSourceState) || state === normalizeState(cfg.tracker.planningClaimState)) {
     return "planning";
   }
   return "implementation";
@@ -165,6 +166,30 @@ async function executePlanningRun(
     return;
   }
 
+  if (normalizeState(issue.state) === normalizeState(cfg.tracker.planningSourceState)) {
+    const liveState = await fetchCurrentState(s, signal, issue.id);
+    if (normalizeState(liveState) !== normalizeState(cfg.tracker.planningSourceState)) {
+      if (verboseOpsEnabled()) {
+        s.logger.info("planning skipped due to state drift", "issue_id", issue.id, "state", liveState);
+      }
+      return;
+    }
+    await s.tracker.transitionIssueToState(signal, issue.id, cfg.tracker.planningClaimState);
+    issue.state = cfg.tracker.planningClaimState;
+    if (verboseOpsEnabled()) {
+      s.logger.info("planning claim acquired", "issue_id", issue.id, "claim_state", cfg.tracker.planningClaimState);
+    }
+  }
+
+  const currentState = await fetchCurrentState(s, signal, issue.id);
+  if (normalizeState(currentState) !== normalizeState(cfg.tracker.planningClaimState)) {
+    if (verboseOpsEnabled()) {
+      s.logger.info("planning skipped after claim check", "issue_id", issue.id, "state", currentState);
+    }
+    return;
+  }
+  issue.state = currentState;
+
   const result = await s.runner.runAgentAttempt(
     signal,
     issue,
@@ -179,6 +204,16 @@ async function executePlanningRun(
     throw newError("planning_output_missing", `planning output missing for issue=${issue.identifier}`);
   }
 
+  const latestPlan = await s.tracker.fetchLatestPlanComment(signal, issue.id, cfg.tracker.planCommentTag);
+  if (latestPlan && latestPlan.trim()) {
+    if (verboseOpsEnabled()) {
+      s.logger.info("planning detected plan created by another runner", "issue_id", issue.id);
+    }
+    await s.tracker.transitionIssueToState(signal, issue.id, cfg.tracker.planningTargetState);
+    issue.state = cfg.tracker.planningTargetState;
+    return;
+  }
+
   const commentBody = `${cfg.tracker.planCommentTag}\n\n${plan}`;
   if (verboseOpsEnabled()) {
     s.logger.info("planning post plan comment", "issue_id", issue.id, "comment_length", commentBody.length);
@@ -189,6 +224,15 @@ async function executePlanningRun(
     s.logger.info("planning transition complete", "issue_id", issue.id, "target_state", cfg.tracker.planningTargetState);
   }
   issue.state = cfg.tracker.planningTargetState;
+}
+
+async function fetchCurrentState(s: Scheduler, signal: AbortSignal, issueId: string): Promise<string> {
+  const stateMap = await s.tracker.fetchIssueStatesByIds(signal, [issueId]);
+  const state = stateMap[issueId] ?? "";
+  if (!state.trim()) {
+    throw newError("issue_state_refresh_failed", `unable to refresh state for issue=${issueId}`);
+  }
+  return state;
 }
 
 async function buildImplementationOptions(

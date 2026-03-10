@@ -18,6 +18,7 @@ const defaultStallTimeoutMs = 300000;
 const defaultProjectStatusField = "Status";
 const defaultProjectPriorityField = "Priority";
 const defaultPlanningSourceState = "Ready";
+const defaultPlanningClaimState = "Planning";
 const defaultPlanningTargetState = "Planned";
 const defaultImplementationState = "Ready to implement";
 const defaultPlanCommentTag = "<!-- symphony:implementation-plan -->";
@@ -42,6 +43,7 @@ export function buildServiceConfig(def: WorkflowDefinition): ServiceConfig {
       statusFieldName: coalesce(getString(root, "tracker", "status_field_name"), defaultProjectStatusField),
       priorityFieldName: coalesce(getString(root, "tracker", "priority_field_name"), defaultProjectPriorityField),
       planningSourceState: coalesce(getString(root, "tracker", "planning_source_state"), defaultPlanningSourceState),
+      planningClaimState: coalesce(getString(root, "tracker", "planning_claim_state"), defaultPlanningClaimState),
       planningTargetState: coalesce(getString(root, "tracker", "planning_target_state"), defaultPlanningTargetState),
       implementationState: coalesce(getString(root, "tracker", "implementation_state"), defaultImplementationState),
       planCommentTag: coalesce(getString(root, "tracker", "plan_comment_tag"), defaultPlanCommentTag)

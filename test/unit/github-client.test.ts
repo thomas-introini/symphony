@@ -102,6 +102,7 @@ describe("github client", () => {
         statusFieldName: "Status",
         priorityFieldName: "Priority",
         planningSourceState: "Ready",
+        planningClaimState: "Planning",
         planningTargetState: "Planned",
         implementationState: "Ready to implement",
         planCommentTag: "<!-- symphony:implementation-plan -->"
@@ -145,6 +146,7 @@ describe("github client", () => {
         statusFieldName: "Status",
         priorityFieldName: "Priority",
         planningSourceState: "Ready",
+        planningClaimState: "Planning",
         planningTargetState: "Planned",
         implementationState: "Ready to implement",
         planCommentTag: "<!-- symphony:implementation-plan -->"
@@ -212,6 +214,7 @@ describe("github client", () => {
         statusFieldName: "Status",
         priorityFieldName: "Priority",
         planningSourceState: "Ready",
+        planningClaimState: "Planning",
         planningTargetState: "Planned",
         implementationState: "Ready to implement",
         planCommentTag: "<!-- symphony:implementation-plan -->"

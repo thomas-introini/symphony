@@ -8,6 +8,7 @@ tracker:
   project_number: 1
   active_states:
     - Ready
+    - Planning
     - Ready to implement
     - In Progress
   terminal_states:
@@ -19,6 +20,7 @@ tracker:
   status_field_name: Status
   priority_field_name: Priority
   planning_source_state: Ready
+  planning_claim_state: Planning
   planning_target_state: Planned
   implementation_state: Ready to implement
   plan_comment_tag: "<!-- symphony:implementation-plan -->"
